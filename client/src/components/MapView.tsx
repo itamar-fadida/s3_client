@@ -543,66 +543,66 @@ export default function MapView() {
 
         // @ts-ignore - zarrita types are complex
         console.log("📊 Fetching array data...");
-        console.log("   Array methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(arr)));
+        console.log("   Array shape:", arr.shape);
+        console.log("   Array chunks:", arr.chunks);
+        console.log("   Array dtype:", arr.dtype);
         
-        // For zarrita, we need to use getRaw() or slice notation
-        let data;
-        try {
-          console.log("   Trying arr.getRaw()...");
-          data = await arr.getRaw();
-          console.log("   ✅ getRaw() worked!");
-        } catch (e) {
-          console.log("   ❌ getRaw() failed, trying alternative...");
-          // Try getting full slice
-          data = await arr.get([null, null]);
+        // Calculate how many chunks we need to fetch
+        const [totalRows, cols] = arr.shape;
+        const [chunkRows, chunkCols] = arr.chunks;
+        const numChunks = Math.ceil(totalRows / chunkRows);
+        
+        console.log(`   Need to fetch ${numChunks} chunks (${chunkRows} rows per chunk)`);
+        
+        // Fetch all chunks and combine them
+        const allData: number[][] = [];
+        
+        for (let chunkIndex = 0; chunkIndex < numChunks; chunkIndex++) {
+          console.log(`   Fetching chunk ${chunkIndex}/${numChunks}...`);
+          
+          try {
+            // getChunk returns the raw chunk data
+            const chunkData = await arr.getChunk([chunkIndex, 0]);
+            console.log(`   ✅ Got chunk ${chunkIndex}, data:`, chunkData);
+            
+            // Convert chunk data to array of [lon, lat, time] arrays
+            // ChunkData is a TypedArray (Float64Array) in row-major order
+            const chunkArray = Array.from(chunkData.data);
+            const rowsInChunk = Math.min(chunkRows, totalRows - chunkIndex * chunkRows);
+            
+            for (let i = 0; i < rowsInChunk; i++) {
+              const offset = i * cols;
+              allData.push([
+                chunkArray[offset],     // lon
+                chunkArray[offset + 1], // lat
+                chunkArray[offset + 2]  // time_unix
+              ]);
+            }
+            
+            // Update progress
+            const progress = 60 + (chunkIndex / numChunks) * 20;
+            setProgress(Math.floor(progress));
+          } catch (chunkError) {
+            console.error(`   ❌ Failed to fetch chunk ${chunkIndex}:`, chunkError);
+            throw chunkError;
+          }
         }
         
-        console.log("✅ Got data array!");
-        console.log("   - Data type:", typeof data);
-        console.log("   - Data:", data);
-        console.log("   - Data shape:", arr.shape);
-        console.log("   - Data length:", data?.length);
+        console.log("✅ Got all data!");
+        console.log("   - Total points:", allData.length);
+        console.log("   - First point:", allData[0]);
+        console.log("   - Last point:", allData[allData.length - 1]);
 
         setLoadingStep("Processing route points...");
         setProgress(80);
 
-        // Extract route points from Zarr array
-        const routePoints: RoutePoint[] = [];
-        console.log("🔄 Processing data...");
-        console.log("   Data structure check:", {
-          isArray: Array.isArray(data),
-          hasLength: data?.length !== undefined,
-          firstElement: data?.[0],
-          shape: arr.shape
-        });
+        // Convert to route points
+        const routePoints: RoutePoint[] = allData.map(([lon, lat, time_unix]) => ({
+          lon,
+          lat,
+          time_unix
+        }));
         
-        // Handle different data formats
-        const numPoints = arr.shape[0];
-        console.log(`   Processing ${numPoints} points...`);
-        
-        for (let i = 0; i < numPoints; i++) {
-          // Data might be nested arrays or flat TypedArray
-          let lon, lat, time_unix;
-          
-          if (Array.isArray(data[i])) {
-            // Nested array format: [[lon, lat, time], ...]
-            lon = data[i][0];
-            lat = data[i][1];
-            time_unix = data[i][2];
-          } else {
-            // Flat array format: [lon0, lat0, time0, lon1, lat1, time1, ...]
-            lon = data[i * 3];
-            lat = data[i * 3 + 1];
-            time_unix = data[i * 3 + 2];
-          }
-          
-          routePoints.push({ lat, lon, time_unix });
-          
-          // Progress update every 1000 points
-          if (i % 1000 === 0) {
-            console.log(`   Processed ${i}/${numPoints} points...`);
-          }
-        }
         console.log("✅ Processed", routePoints.length, "route points");
 
         setLoadingStep("Rendering map...");
