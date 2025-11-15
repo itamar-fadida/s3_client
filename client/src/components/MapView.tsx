@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -244,7 +244,6 @@ function RoutePolylineWithTooltip({
 
   return (
     <>
-      {/* Floating tooltip that follows cursor */}
       {tooltip && (
         <div
           className="absolute z-[1000] bg-gray-900 text-white px-3 py-2 rounded-lg shadow-lg text-xs pointer-events-none"
@@ -472,7 +471,7 @@ export default function MapView() {
         // OPTION 1: Load from public directory (for local testing)
         // FetchStore needs absolute URL, not relative path
         const base_url = `${window.location.origin}/data/route.zarr`;
-        
+
         /* OPTION 2: Load from FastAPI server (for S3)
         console.log("📡 Fetching proxy URL from http://localhost:8000/proxy/route");
         const res = await fetch("http://localhost:8000/proxy/route");
@@ -485,7 +484,7 @@ export default function MapView() {
         
         const { base_url } = await res.json();
         */
-        
+
         console.log("✅ Using absolute URL:", base_url);
 
         setLoadingStep("Loading Zarr metadata...");
@@ -495,18 +494,26 @@ export default function MapView() {
         console.log("🔍 Testing if zarr.json is accessible...");
         const testUrl = `${base_url}/zarr.json`;
         console.log("   Testing URL:", testUrl);
-        
+
         const testResponse = await fetch(testUrl);
         console.log("   Response status:", testResponse.status);
-        console.log("   Response headers:", Object.fromEntries(testResponse.headers.entries()));
-        
+        console.log(
+          "   Response headers:",
+          Object.fromEntries(testResponse.headers.entries())
+        );
+
         if (!testResponse.ok) {
-          throw new Error(`zarr.json not found at ${testUrl}. Status: ${testResponse.status}`);
+          throw new Error(
+            `zarr.json not found at ${testUrl}. Status: ${testResponse.status}`
+          );
         }
-        
+
         const testText = await testResponse.text();
-        console.log("   Response preview (first 200 chars):", testText.substring(0, 200));
-        
+        console.log(
+          "   Response preview (first 200 chars):",
+          testText.substring(0, 200)
+        );
+
         // Try to parse it as JSON
         try {
           const jsonData = JSON.parse(testText);
@@ -521,10 +528,10 @@ export default function MapView() {
         console.log("📦 Creating FetchStore with base URL:", base_url);
         const store = new FetchStore(base_url);
         console.log("   Store created:", store);
-        
+
         console.log("📦 Attempting to open Zarr array...");
         console.log("   This will try to read zarr.json and load metadata");
-        
+
         let arr;
         try {
           arr = await zarr.open(store, { kind: "array" });
@@ -534,7 +541,9 @@ export default function MapView() {
           console.error("❌ zarr.open() failed!");
           console.error("   Error:", zarrError);
           console.error("   Error message:", zarrError.message);
-          console.error("   This usually means zarrita can't read the zarr.json format or a file is missing");
+          console.error(
+            "   This usually means zarrita can't read the zarr.json format or a file is missing"
+          );
           throw zarrError;
         }
 
@@ -546,48 +555,56 @@ export default function MapView() {
         console.log("   Array shape:", arr.shape);
         console.log("   Array chunks:", arr.chunks);
         console.log("   Array dtype:", arr.dtype);
-        
+
         // Calculate how many chunks we need to fetch
         const [totalRows, cols] = arr.shape;
         const [chunkRows, chunkCols] = arr.chunks;
         const numChunks = Math.ceil(totalRows / chunkRows);
-        
-        console.log(`   Need to fetch ${numChunks} chunks (${chunkRows} rows per chunk)`);
-        
+
+        console.log(
+          `   Need to fetch ${numChunks} chunks (${chunkRows} rows per chunk)`
+        );
+
         // Fetch all chunks and combine them
         const allData: number[][] = [];
-        
+
         for (let chunkIndex = 0; chunkIndex < numChunks; chunkIndex++) {
           console.log(`   Fetching chunk ${chunkIndex}/${numChunks}...`);
-          
+
           try {
             // getChunk returns the raw chunk data
             const chunkData = await arr.getChunk([chunkIndex, 0]);
             console.log(`   ✅ Got chunk ${chunkIndex}, data:`, chunkData);
-            
+
             // Convert chunk data to array of [lon, lat, time] arrays
             // ChunkData is a TypedArray (Float64Array) in row-major order
             const chunkArray = Array.from(chunkData.data);
-            const rowsInChunk = Math.min(chunkRows, totalRows - chunkIndex * chunkRows);
-            
+            const rowsInChunk = Math.min(
+              chunkRows,
+              totalRows - chunkIndex * chunkRows
+            );
+
             for (let i = 0; i < rowsInChunk; i++) {
               const offset = i * cols;
               allData.push([
-                chunkArray[offset],     // lon
+                chunkArray[offset], // lon
                 chunkArray[offset + 1], // lat
-                chunkArray[offset + 2]  // time_unix
+                chunkArray[offset + 2], // time_unix
               ]);
             }
-            
+
             // Update progress
             const progress = 60 + (chunkIndex / numChunks) * 20;
             setProgress(Math.floor(progress));
           } catch (chunkError) {
-            console.error(`   ❌ Failed to fetch chunk ${chunkIndex}:`, chunkError);
+            console.error(
+              `   ❌ Failed to fetch chunk ${chunkIndex}:`,
+              chunkError
+            );
             throw chunkError;
           }
         }
-        
+
         console.log("✅ Got all data!");
         console.log("   - Total points:", allData.length);
         console.log("   - First point:", allData[0]);
@@ -597,12 +614,14 @@ export default function MapView() {
         setProgress(80);
 
         // Convert to route points
-        const routePoints: RoutePoint[] = allData.map(([lon, lat, time_unix]) => ({
-          lon,
-          lat,
-          time_unix
-        }));
-        
+        const routePoints: RoutePoint[] = allData.map(
+          ([lon, lat, time_unix]) => ({
+            lon,
+            lat,
+            time_unix,
+          })
+        );
+
         console.log("✅ Processed", routePoints.length, "route points");
 
         setLoadingStep("Rendering map...");
@@ -613,17 +632,18 @@ export default function MapView() {
         console.log("🎉 Route loaded successfully!");
       } catch (err: any) {
         // Enhanced error logging
-        console.error("=" .repeat(50));
+        console.error("=".repeat(50));
         console.error("❌ ERROR LOADING ROUTE");
-        console.error("=" .repeat(50));
+        console.error("=".repeat(50));
         console.error("Error object:", err);
         console.error("Error message:", err?.message);
         console.error("Error name:", err?.name);
         console.error("Error stack:", err?.stack);
-        console.error("=" .repeat(50));
-        
+        console.error("=".repeat(50));
+
         // Set user-friendly error message
-        const errorMessage = err?.message || err?.toString() || "Unknown error occurred";
+        const errorMessage =
+          err?.message || err?.toString() || "Unknown error occurred";
         setError(errorMessage);
         setLoadingStep("Error occurred");
         setLoading(false);
@@ -701,7 +721,8 @@ export default function MapView() {
           {!error && (
             <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-blue-800 text-sm">
-                💡 <strong>Tip:</strong> Open browser console (F12) to see detailed loading progress
+                💡 <strong>Tip:</strong> Open browser console (F12) to see
+                detailed loading progress
               </p>
             </div>
           )}
